@@ -132,6 +132,13 @@ wire mmcm_rst = reset;
 wire mmcm_locked;
 wire mmcm_clkfb;
 
+// 时钟信号处理流程
+// 1. 将差分时钟信号转化为单端时钟信号
+// 2. MMCME3稳定时钟信号，输入输出均为125MHZ，mmcm_lock为1时代表时钟已稳定
+// 3. BUFG增强时钟信号，使其能够驱动全局FPGA
+// 4. sync_reset 对mmcm_lock提供一个缓冲区，在时钟未完全稳定的情况下确保reset信号为1
+// 问题：原始时钟频率的影响是什么？该实现是否必须使用125MHZ时钟
+
 IBUFGDS #(
    .DIFF_TERM("FALSE"),
    .IBUF_LOW_PWR("FALSE")   
@@ -216,6 +223,9 @@ sync_reset_125mhz_inst (
 );
 
 // GPIO
+// 稳定和同步按钮，开关信号以及
+// 接收数据(uart_rxd)和清除发送(uart_cts)信号
+// 这里的时钟信号是qsfp中的390hz信号
 wire btnu_int;
 wire btnl_int;
 wire btnd_int;
@@ -259,6 +269,9 @@ sync_signal_inst (
 );
 
 // SI570 I2C
+// _t 是控制信号，为1时总线为高阻态，让其他设备驱动总线，为0时总线被_o驱动
+// _i 是输入信号，读取总线状态
+// i2c_scl, i2c_sda连接了FPGA i2c 总线
 wire i2c_scl_i;
 wire i2c_scl_o = 1'b1;
 wire i2c_scl_t = 1'b1;
@@ -274,6 +287,7 @@ assign i2c_sda = i2c_sda_t ? 1'bz : i2c_sda_o;
 // XGMII 10G PHY
 
 // QSFP1
+//QSFP模块接线
 assign qsfp1_modsell = 1'b0;
 assign qsfp1_resetl = 1'b1;
 assign qsfp1_lpmode = 1'b0;
@@ -309,7 +323,7 @@ wire [7:0]  qsfp1_txc_4_int;
 wire        qsfp1_rx_clk_4_int;
 wire        qsfp1_rx_rst_4_int;
 wire [63:0] qsfp1_rxd_4_int;
-wire [7:0]  qsfp1_rxc_4_int;
+wire [7:0]  qsfp1_rxc_4_int; 
 
 assign clk_390mhz_int = qsfp1_tx_clk_1_int;
 assign rst_390mhz_int = qsfp1_tx_rst_1_int;
@@ -320,7 +334,8 @@ wire qsfp1_rx_block_lock_3;
 wire qsfp1_rx_block_lock_4;
 
 wire qsfp1_mgt_refclk;
-
+//差分时钟信号生成参考时钟
+// qsfp1_mgt_refclk_0_p 和 qsfp1_mgt_refclk_0_n 连接QSFP时钟
 IBUFDS_GTE4 ibufds_gte4_qsfp1_mgt_refclk_0_inst (
     .I     (qsfp1_mgt_refclk_0_p),
     .IB    (qsfp1_mgt_refclk_0_n),
@@ -342,11 +357,13 @@ qsfp1_phy_inst (
     /*
      * PLL
      */
+     // PLL参考时钟
     .xcvr_gtrefclk00_in(qsfp1_mgt_refclk),
 
     /*
      * Serial data
      */
+     // 差分发送和接收通道
     .xcvr_txp(qsfp1_tx_p),
     .xcvr_txn(qsfp1_tx_n),
     .xcvr_rxp(qsfp1_rx_p),
@@ -708,6 +725,13 @@ eth_pcspma (
     .tx_rdclk_out           ()
 );
 
+//使用mdio_master进行以太网物理层芯片phy的初始化配置
+// 0-3步配置自协商超时为11ms
+// 4-7步打开SGMII时钟输出
+// 8-11步配置10Mbps模式
+// 这里的具体地址和命令可能需要参考芯片手册
+// https://www.perplexity.ai/search/jie-he-xia-mian-zhe-duan-mdio-ivycbuOxSeOkM19JOKvbag
+// https://www.ti.com/document-viewer/DP83867IS/datasheet#GUID-D7A73B71-FD32-4BDD-8C79-C9DE8A5FB3B5/TITLE-SNLS484SNLS4846423
 reg [19:0] delay_reg = 20'hfffff;
 
 reg [4:0] mdio_cmd_phy_addr = 5'h03;
